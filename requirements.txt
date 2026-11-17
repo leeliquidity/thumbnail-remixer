@@ -1,0 +1,6 @@
+anthropic>=0.40
+openai>=1.60
+requests
+pillow
+python-dotenv
+python-telegram-bot>=21
