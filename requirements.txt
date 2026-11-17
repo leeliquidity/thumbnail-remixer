@@ -3,3 +3,4 @@ openai>=1.60
 requests
 pillow
 python-dotenv
+higgsfield-client>=0.2.0
