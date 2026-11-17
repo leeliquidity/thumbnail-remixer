@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thumbnail Remixer: recreate viral YouTube thumbnails</title>
+<meta name="description" content="Enter your video title and image. Finds the most viral similar videos and builds thumbnails around your image using their formula.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0d0c;--panel:#131614;--line:#232825;--text:#e9efe9;--mute:#8a958d;--acc:#22c55e;--acc2:#16a34a;--err:#f87171}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 Inter,system-ui,sans-serif}
+a{color:var(--acc)}
+.wrap{max-width:1100px;margin:0 auto;padding:28px 20px 80px}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}
+h1{font-size:26px;font-weight:800;margin:0;letter-spacing:-.02em}
+h1 span{color:var(--acc)}
+.sub{color:var(--mute);margin:4px 0 0}
+button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:10px 16px;font-weight:600}
+.btn{background:var(--acc);color:#04110a}.btn:hover{background:var(--acc2)}
+.btn:disabled{opacity:.5;cursor:wait}
+.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+.ghost:hover{border-color:var(--mute)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:18px}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tab{background:transparent;color:var(--mute);border:1px solid var(--line)}
+.tab.on{color:var(--text);border-color:var(--acc);background:#22c55e14}
+label{display:block;font-size:13px;color:var(--mute);margin:12px 0 6px}
+input[type=text],input[type=password],input[type=number],select,textarea{width:100%;background:#0e100f;border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px 12px;font:inherit}
+textarea{min-height:60px;resize:vertical}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.drop{border:1.5px dashed var(--line);border-radius:12px;padding:18px;text-align:center;color:var(--mute);cursor:pointer;position:relative;min-height:110px;display:flex;align-items:center;justify-content:center;gap:12px}
+.drop:hover,.drop.over{border-color:var(--acc);color:var(--text)}
+.drop img{max-height:120px;border-radius:8px}
+.drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.hint{font-size:12px;color:var(--mute);margin-top:6px}
+#log{font:12.5px/1.6 ui-monospace,Menlo,monospace;color:var(--mute);white-space:pre-wrap;max-height:180px;overflow:auto}
+#log .e{color:var(--err)}#log .ok{color:var(--acc)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.card{background:#0e100f;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.card img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#000}
+.card .meta{padding:10px 12px;font-size:13px}
+.card .meta b{display:block;font-weight:600;color:var(--text);margin-bottom:2px}
+.pill{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:99px;background:#22c55e1f;color:var(--acc);margin-right:6px;font-weight:600}
+.big{grid-template-columns:repeat(auto-fill,minmax(420px,1fr))}
+.titles div{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.titles div:last-child{border:0}
+.small{padding:6px 10px;font-size:12.5px}
+h2{font-size:17px;margin:0 0 12px}
+.hidden{display:none}
+.formula{color:var(--text)}
+.formula p{margin:6px 0;color:var(--mute)}.formula p b{color:var(--text)}
+details summary{cursor:pointer;color:var(--mute)}
+.keys-ok{color:var(--acc);font-size:13px}
+@media(max-width:520px){.big{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Thumbnail <span>Remixer</span></h1>
+      <p class="sub">Copy the formula behind viral YouTube thumbnails and build new ones around your own image.</p>
+    </div>
+    <button class="ghost" id="keysBtn">API keys</button>
+  </header>
+
+  <div class="panel hidden" id="keys">
+    <h2>API keys</h2>
+    <p class="hint" style="margin-top:-6px">Saved only in this browser. They're sent straight to Anthropic, OpenAI and Google and never to anyone else.</p>
+    <div class="row">
+      <div><label>Anthropic API key</label><input type="password" id="kAnthropic" placeholder="sk-ant-..."></div>
+      <div><label>OpenAI API key</label><input type="password" id="kOpenAI" placeholder="sk-..."></div>
+      <div><label>YouTube Data API key (needed for the Similar tab)</label><input type="password" id="kYouTube" placeholder="AIza..."></div>
+    </div>
+    <div class="row">
+      <div><label>Claude model</label><input type="text" id="mClaude" value="claude-sonnet-5-5"></div>
+      <div><label>Image model</label><input type="text" id="mImage" value="gpt-image-1"></div>
+      <div><label>Image quality</label><select id="quality"><option>high</option><option>medium</option><option>low</option></select></div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+      <button class="btn" id="saveKeys">Save</button><span id="keysMsg" class="keys-ok"></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="tabs">
+      <button class="tab on" data-tab="similar">Similar: title + your image</button>
+      <button class="tab" data-tab="remix">Remix one video</button>
+    </div>
+
+    <div id="tab-similar">
+      <label>Your video title</label>
+      <input type="text" id="sTitle" placeholder="How I passed my prop firm challenge in 3 days">
+      <label>Your image (face, product, screenshot: the thumbnail gets built around it)</label>
+      <div class="drop" id="sDrop"><span>Drop an image or click to upload</span><input type="file" accept="image/*" id="sFile"></div>
+      <div class="row">
+        <div><label>Thumbnails to make</label><select id="sN"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></div>
+        <div><label>Viral videos to study</label><select id="sRefs"><option>4</option><option selected>6</option><option>8</option></select></div>
+        <div><label>Video age limit</label><select id="sDays"><option value="180">6 months</option><option value="365">1 year</option><option value="730" selected>2 years</option><option value="0">Any time</option></select></div>
+      </div>
+      <label>Extra direction (optional)</label>
+      <textarea id="sNotes" placeholder="e.g. green money vibe, show a P&L, keep it clean"></textarea>
+      <div style="margin-top:16px"><button class="btn" id="runSimilar">Find viral formula + generate</button></div>
+    </div>
+
+    <div id="tab-remix" class="hidden">
+      <label>YouTube video URL</label>
+      <input type="text" id="rUrl" placeholder="https://youtu.be/...">
+      <div class="row">
+        <div><label>Your niche</label><input type="text" id="rNiche" placeholder="NQ futures trading"></div>
+        <div><label>Your video title (optional)</label><input type="text" id="rTitle" placeholder="Leave blank and it'll write one"></div>
+      </div>
+      <label>Your face or subject image (optional)</label>
+      <div class="drop" id="rDrop"><span>Drop an image or click to upload</span><input type="file" accept="image/*" id="rFile"></div>
+      <div class="row"><div><label>Thumbnails to make</label><select id="rN"><option>1</option><option selected>2</option><option>3</option></select></div></div>
+      <div style="margin-top:16px"><button class="btn" id="runRemix">Break down + remix</button></div>
+    </div>
+  </div>
+
+  <div class="panel hidden" id="logPanel"><div id="log"></div></div>
+
+  <div id="results"></div>
+
+  <p class="hint" style="text-align:center;margin-top:30px">Each high-quality thumbnail costs about $0.20 in OpenAI usage. The command-line version is on <a href="https://github.com/leeliquidity/thumbnail-remixer">GitHub</a>.</p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const store = { get(k){try{return localStorage.getItem("tr_"+k)||""}catch{return ""}}, set(k,v){try{localStorage.setItem("tr_"+k,v)}catch{}} };
+const KEYS = ["kAnthropic","kOpenAI","kYouTube","mClaude","mImage","quality"];
+KEYS.forEach(k=>{const v=store.get(k); if(v) $(k).value=v;});
+if(!store.get("kAnthropic")||!store.get("kOpenAI")) $("keys").classList.remove("hidden");
+$("keysBtn").onclick=()=>$("keys").classList.toggle("hidden");
+$("saveKeys").onclick=()=>{KEYS.forEach(k=>store.set(k,$(k).value.trim())); $("keysMsg").textContent="Saved ✓"; setTimeout(()=>$("keys").classList.add("hidden"),600);};
+const cfg = k => $(k).value.trim();
+
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x===t));
+  ["similar","remix"].forEach(n=>$("tab-"+n).classList.toggle("hidden",n!==t.dataset.tab));
+});
+
+// ---------- image upload ----------
+const uploads = {};
+function setupDrop(dropId, fileId, key){
+  const d=$(dropId), f=$(fileId);
+  const show = file => { if(!file||!file.type.startsWith("image/")) return; uploads[key]=file;
+    const u=URL.createObjectURL(file); d.querySelector("span").innerHTML=`<img src="${u}"> <span>${file.name}<br><small>click to change</small></span>`; };
+  f.onchange=()=>show(f.files[0]);
+  ["dragover","dragenter"].forEach(e=>d.addEventListener(e,ev=>{ev.preventDefault();d.classList.add("over")}));
+  ["dragleave","drop"].forEach(e=>d.addEventListener(e,()=>d.classList.remove("over")));
+  d.addEventListener("drop",ev=>{ev.preventDefault();show(ev.dataTransfer.files[0])});
+}
+setupDrop("sDrop","sFile","s"); setupDrop("rDrop","rFile","r");
+
+function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.crossOrigin="anonymous";i.onload=()=>res(i);i.onerror=rej;i.src=src;});}
+async function toJpegBlob(fileOrUrl, max=1536){
+  const src = typeof fileOrUrl==="string"?fileOrUrl:URL.createObjectURL(fileOrUrl);
+  const im = await loadImg(src); let {width:w,height:h}=im; const s=Math.min(1,max/Math.max(w,h)); w=Math.round(w*s);h=Math.round(h*s);
+  const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(im,0,0,w,h);
+  return await new Promise(r=>c.toBlob(r,"image/jpeg",.92));
+}
+const blobToB64 = b => new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result.split(",")[1]);fr.readAsDataURL(b);});
+async function cropTo169(b64){
+  const im=await loadImg("data:image/png;base64,"+b64); const w=im.width,h=im.height;
+  let tw=w,th=Math.round(w*9/16); if(th>h){th=h;tw=Math.round(h*16/9);}
+  const c=document.createElement("canvas");c.width=1280;c.height=720;
+  c.getContext("2d").drawImage(im,(w-tw)/2,(h-th)/2,tw,th,0,0,1280,720);
+  return c.toDataURL("image/jpeg",.95);
+}
+
+// ---------- logging ----------
+function log(msg,cls=""){ $("logPanel").classList.remove("hidden"); const d=document.createElement("div"); if(cls)d.className=cls; d.textContent=msg; $("log").appendChild(d); $("log").scrollTop=1e9; }
+const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// ---------- YouTube ----------
+function videoId(s){ s=s.trim(); if(/^[\w-]{11}$/.test(s)) return s; const m=s.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([\w-]{11})/); if(!m) throw new Error("Couldn't find a YouTube video ID in that URL"); return m[1]; }
+const thumb = (id,q="hqdefault") => `https://i.ytimg.com/vi/${id}/${q}.jpg`;
+async function ytMeta(id){ try{ const r=await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${id}`); const d=await r.json(); return {title:d.title||"",channel:d.author_name||""}; }catch{ return {title:"",channel:""}; } }
+async function yt(path, params){
+  const key=cfg("kYouTube"); if(!key) throw new Error("Add a YouTube Data API key in API keys (free from the Google Cloud console with YouTube Data API v3 turned on)");
+  const u=new URL("https://www.googleapis.com/youtube/v3/"+path); Object.entries({...params,key}).forEach(([k,v])=>v!=null&&u.searchParams.set(k,v));
+  const d=await (await fetch(u)).json(); if(d.error) throw new Error("YouTube: "+d.error.message); return d;
+}
+async function ytSearch(q, order, days){
+  const p={part:"snippet",q,type:"video",order,maxResults:50};
+  if(days) p.publishedAfter=new Date(Date.now()-days*864e5).toISOString().split(".")[0]+"Z";
+  const s=await yt("search",p); const ids=s.items.map(i=>i.id.videoId); if(!ids.length) return [];
+  const v=await yt("videos",{part:"statistics,snippet",id:ids.join(",")});
+  const chIds=[...new Set(v.items.map(x=>x.snippet.channelId))]; const subs={};
+  for(let i=0;i<chIds.length;i+=50){ const c=await yt("channels",{part:"statistics",id:chIds.slice(i,i+50).join(",")}); c.items.forEach(ch=>subs[ch.id]=+ch.statistics.subscriberCount||0); }
+  return v.items.map(x=>{ const views=+x.statistics.viewCount||0, sc=Math.max(subs[x.snippet.channelId]||0,1000);
+    return {id:x.id,url:`https://youtu.be/${x.id}`,title:x.snippet.title,channel:x.snippet.channelTitle,views,subs:sc,outlier:+(views/sc).toFixed(1)}; });
+}
+async function findSimilar(title, top, days, minViews=20000){
+  const seen=new Set(), rows=[];
+  for(const order of ["relevance","viewCount"]) for(const r of await ytSearch(title,order,days)) if(!seen.has(r.id)&&r.views>=minViews){seen.add(r.id);rows.push(r);}
+  rows.forEach(r=>r.score=Math.log10(r.views+1)*(1+Math.log10(Math.max(r.outlier,.1)+1)));
+  return rows.sort((a,b)=>b.score-a.score).slice(0,top);
+}
+
+// ---------- Claude ----------
+async function claude(content, max_tokens=5000){
+  const key=cfg("kAnthropic"); if(!key) throw new Error("Add your Anthropic API key in API keys");
+  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"x-api-key":key,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model:cfg("mClaude")||"claude-sonnet-5-5",max_tokens,messages:[{role:"user",content}]})});
+  const d=await r.json(); if(d.error) throw new Error("Claude: "+d.error.message);
+  const text=d.content.filter(b=>b.type==="text").map(b=>b.text).join(""); const m=text.match(/\{[\s\S]*\}/);
+  if(!m) throw new Error("Claude didn't return JSON"); return JSON.parse(m[0]);
+}
+const imgUrlBlock = url => ({type:"image",source:{type:"url",url}});
+const imgB64Block = b64 => ({type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}});
+
+// ---------- OpenAI ----------
+async function genImage(prompt, images){
+  const key=cfg("kOpenAI"); if(!key) throw new Error("Add your OpenAI API key in API keys");
+  const model=cfg("mImage")||"gpt-image-1", quality=cfg("quality")||"high"; let r;
+  const full = prompt+"\n\nOutput: 16:9 YouTube thumbnail, crisp, high contrast, text perfectly spelled and legible on mobile.";
+  if(images.length){
+    const fd=new FormData(); fd.append("model",model); fd.append("prompt",images.map((im,i)=>`Image ${i+1}: ${im.role}`).join(" ")+"\n\n"+full);
+    fd.append("size","1536x1024"); fd.append("quality",quality); fd.append("input_fidelity","high");
+    images.forEach((im,i)=>fd.append("image[]",im.blob,`img${i}.jpg`));
+    r=await fetch("https://api.openai.com/v1/images/edits",{method:"POST",headers:{Authorization:"Bearer "+key},body:fd});
+  } else {
+    r=await fetch("https://api.openai.com/v1/images/generations",{method:"POST",headers:{Authorization:"Bearer "+key,"content-type":"application/json"},body:JSON.stringify({model,prompt:full,size:"1536x1024",quality})});
+  }
+  const d=await r.json(); if(d.error) throw new Error("OpenAI: "+d.error.message);
+  return await cropTo169(d.data[0].b64_json);
+}
+const ROLE_SUBJECT="the CREATOR'S IMAGE. The thumbnail is built around it: keep its main subject (person, product or object) clearly recognizable and faithful. You may cut it out, re-light it, scale it and reposition it.";
+const ROLE_REF="a LAYOUT/STYLE REFERENCE ONLY. Match its composition, framing, subject scale, text placement, contrast and energy. Do NOT reproduce its people, faces, logos, objects or text.";
+async function refBlob(id){ for(const q of ["maxresdefault","hqdefault"]){ try{ return await toJpegBlob(thumb(id,q),1280);}catch{} } return null; }
+
+// ---------- prompts ----------
+const SYNTH = (k,refs,title,notes,n,hasImg)=>`You are a YouTube packaging strategist. The first ${k} images are thumbnails from the top-performing videos similar to the creator's video. ${hasImg?"The LAST image is the creator's own image that the new thumbnail MUST be built around (keep it recognizable: same person/product/object).":"No creator image was provided, so invent the best subject. Wherever this says 'creator's image', use that subject."}
+
+Reference videos (in image order):
+${refs}
+
+Creator's video title: "${title}"
+${notes||""}
+
+1. Find the shared viral formula across the references: what repeats in the high performers (hook type, layout, subject scale, expression, text length/style, palette, contrast, graphic devices).
+2. Describe the creator's image and how to use it best.
+3. Write ${n} distinct thumbnail concepts that put the creator's image into that formula. Each one borrows its layout from one specific reference (give its 1-based index). Overlay text is max 4 words, creates a curiosity gap with the title and never repeats it. No celebrities or brand logos from the references. image_prompt: one detailed prompt for a 16:9 thumbnail covering subject, expression, pose, lighting, background, hex colors, every graphic element, and the exact overlay text in quotes with font, color, outline and position.
+
+Return ONLY JSON:
+{"viral_formula":{"hook":"","layout":"","subject":"","text":"","palette":["#hex"],"graphics":[""],"summary":"2-3 sentences"},"per_reference":[{"index":1,"why_it_works":"one sentence"}],"creator_image":{"description":"","how_to_use":""},"title_options":["improved version of the creator's title","",""],"concepts":[{"name":"","layout_from":1,"overlay_text":"","image_prompt":""}]}`;
+
+const ANALYZE = (title,channel)=>`You are a YouTube packaging strategist who has studied thousands of viral thumbnails. Reverse-engineer this thumbnail. Video title: "${title}" (channel: ${channel}).
+Return ONLY JSON: {"hook_mechanism":"","why_it_works":"2-3 sentences","composition":{"layout":"","subject_position":"","subject_scale":"","focal_point":""},"subject":{"type":"","expression":"","pose_gesture":"","lighting":""},"text_overlay":{"words":"","font_style":"","color":"","outline_or_shadow":"","position":"","size":""},"color_palette":["#hex"],"contrast_strategy":"","background":"","graphic_elements":[""],"emotion":""}`;
+
+const REMIX = (orig,analysis,niche,topic,hasImg,n)=>`You are a YouTube packaging strategist. Below is a breakdown of a proven viral thumbnail. Remix it for a NEW niche, keeping the exact psychological structure that made it work.
+ORIGINAL TITLE: "${orig}"
+BREAKDOWN: ${JSON.stringify(analysis)}
+NEW NICHE: ${niche}
+${topic?"NEW VIDEO TOPIC/TITLE: "+topic:"Invent a strong video topic for this niche."}
+${hasImg?"The creator's image is provided; the main subject must be built from it.":""}
+Rules: keep layout, subject placement and scale, hook mechanism, palette/contrast, text size/position/style, graphic element types and emotion. Swap all subject matter, props and text to fit the new niche. Overlay text max 4 words, curiosity gap with the title, never repeat it. No celebrities, no brand logos, nothing copied from the original's people. Each image_prompt: one highly detailed prompt for a 16:9 thumbnail with subject, expression, pose, lighting, background, hex colors, graphic elements and the exact overlay text in quotes with font/color/outline/position.
+Return ONLY JSON: {"title":"","title_options":["","",""],"concepts":[${Array(n).fill('{"name":"","overlay_text":"","image_prompt":""}').join(",")}]}`;
+
+// ---------- rendering ----------
+function copyBtn(text){ return `<button class="ghost small" onclick="navigator.clipboard.writeText(this.dataset.t).then(()=>{this.textContent='Copied'})" data-t="${esc(text)}">Copy</button>`; }
+function renderTitles(list){ return `<div class="panel"><h2>Title options</h2><div class="titles">${(list||[]).map(t=>`<div><span>${esc(t)}</span>${copyBtn(t)}</div>`).join("")}</div></div>`; }
+function thumbCard(c,i){
+  return `<div class="card" id="gen${i}"><img alt="" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 9'><rect width='16' height='9' fill='%23181c1a'/></svg>">
+  <div class="meta"><b>${esc(c.name||"Concept "+(i+1))}</b><span class="pill">${esc(c.overlay_text||"")}</span><span class="st">Generating…</span></div></div>`;
+}
+function fillCard(i,dataUrl,name){ const el=$("gen"+i); el.querySelector("img").src=dataUrl;
+  el.querySelector(".st").innerHTML=`<a href="${dataUrl}" download="${(name||"thumbnail").replace(/\W+/g,"-")}.jpg">Download 1280×720</a>`; }
+function failCard(i,msg){ const el=$("gen"+i); el.querySelector(".st").innerHTML=`<span style="color:var(--err)">${esc(msg)}</span>`; }
+
+function busy(on){ ["runSimilar","runRemix"].forEach(id=>$(id).disabled=on); }
+
+// ---------- SIMILAR ----------
+$("runSimilar").onclick=async()=>{
+  const title=$("sTitle").value.trim(); if(!title) return alert_("Enter your video title");
+  const n=+$("sN").value, refsN=+$("sRefs").value, days=+$("sDays").value||null, notes=$("sNotes").value.trim();
+  busy(true); $("log").innerHTML=""; $("results").innerHTML="";
+  try{
+    log(`Searching YouTube for videos like "${title}"…`);
+    const refs=await findSimilar(title,refsN,days); if(!refs.length) throw new Error("No similar videos with 20k+ views found. Try a broader title or a longer age limit.");
+    log(`Found ${refs.length} viral references`,"ok");
+    $("results").innerHTML=`<div class="panel"><h2>Viral references studied</h2><div class="grid">${refs.map((r,i)=>`<a class="card" href="${r.url}" target="_blank" style="text-decoration:none;color:inherit"><img src="${thumb(r.id,"mqdefault")}" alt=""><div class="meta"><b>${i+1}. ${esc(r.title)}</b><span class="pill">${r.views.toLocaleString()} views</span><span class="pill">${r.outlier}× subs</span><div class="why" id="why${i}" style="color:var(--mute);margin-top:6px"></div></div></a>`).join("")}</div></div>`;
+    const userBlob = uploads.s ? await toJpegBlob(uploads.s) : null;
+    log("Asking Claude to find the shared viral formula…");
+    const refTxt=refs.map((r,i)=>`${i+1}. "${r.title}" (${r.channel}): ${r.views.toLocaleString()} views, ${r.outlier}x channel subs`).join("\n");
+    const blocks=refs.map(r=>imgUrlBlock(thumb(r.id)));
+    if(userBlob) blocks.push(imgB64Block(await blobToB64(userBlob)));
+    blocks.push({type:"text",text:SYNTH(refs.length,refTxt,title,notes,n,!!userBlob)});
+    const plan=await claude(blocks);
+    (plan.per_reference||[]).forEach(p=>{const el=$("why"+(p.index-1)); if(el) el.textContent=p.why_it_works;});
+    const f=plan.viral_formula||{};
+    const concepts=(plan.concepts||[]).slice(0,n);
+    $("results").insertAdjacentHTML("beforeend",`
+      <div class="panel formula"><h2>The viral formula</h2><p>${esc(f.summary)}</p>
+      <p><b>Hook:</b> ${esc(f.hook)}</p><p><b>Layout:</b> ${esc(f.layout)}</p><p><b>Text:</b> ${esc(f.text)}</p>
+      ${plan.creator_image?`<p><b>Your image:</b> ${esc(plan.creator_image.how_to_use)}</p>`:""}</div>
+      ${renderTitles(plan.title_options)}
+      <div class="panel"><h2>Your thumbnails</h2><div class="grid big" id="gens">${concepts.map(thumbCard).join("")}</div>
+      <details style="margin-top:12px"><summary>Image prompts</summary>${concepts.map(c=>`<p class="hint">${esc(c.image_prompt)}</p>`).join("")}</details></div>`);
+    log(`Generating ${concepts.length} thumbnails at once (about a minute)…`);
+    const refBlobs={};
+    await Promise.all(concepts.map(async(c,i)=>{
+      try{
+        let idx=+c.layout_from||1; if(idx<1||idx>refs.length) idx=1;
+        if(!(idx in refBlobs)) refBlobs[idx]=refBlob(refs[idx-1].id);
+        const rb=await refBlobs[idx]; const images=[];
+        if(userBlob) images.push({blob:userBlob,role:ROLE_SUBJECT});
+        if(rb) images.push({blob:rb,role:ROLE_REF});
+        const url=await genImage(c.image_prompt,images); fillCard(i,url,c.name); log(`✓ ${c.name}`,"ok");
+      }catch(e){ failCard(i,e.message); log(e.message,"e"); }
+    }));
+    log("Done.","ok");
+  }catch(e){ log(e.message,"e"); } finally{ busy(false); }
+};
+
+// ---------- REMIX ----------
+$("runRemix").onclick=async()=>{
+  let id; try{ id=videoId($("rUrl").value);}catch(e){ return alert_(e.message); }
+  const niche=$("rNiche").value.trim(); if(!niche) return alert_("Enter your niche");
+  const topic=$("rTitle").value.trim(), n=+$("rN").value;
+  busy(true); $("log").innerHTML=""; $("results").innerHTML="";
+  try{
+    const meta=await ytMeta(id);
+    $("results").innerHTML=`<div class="panel"><h2>Original</h2><div class="grid"><a class="card" href="https://youtu.be/${id}" target="_blank" style="text-decoration:none;color:inherit"><img src="${thumb(id,"mqdefault")}"><div class="meta"><b>${esc(meta.title||id)}</b>${esc(meta.channel)}</div></a></div><div id="breakdown" class="formula"></div></div>`;
+    log("Breaking down the thumbnail…");
+    const a=await claude([imgUrlBlock(thumb(id)),{type:"text",text:ANALYZE(meta.title,meta.channel)}],2500);
+    $("breakdown").innerHTML=`<p><b>Hook:</b> ${esc(a.hook_mechanism)}</p><p><b>Why it works:</b> ${esc(a.why_it_works)}</p>`;
+    const userBlob = uploads.r ? await toJpegBlob(uploads.r) : null;
+    log(`Remixing for ${niche}…`);
+    const plan=await claude([{type:"text",text:REMIX(meta.title,a,niche,topic,!!userBlob,n)}]);
+    const concepts=(plan.concepts||[]).slice(0,n);
+    $("results").insertAdjacentHTML("beforeend",`${renderTitles([plan.title,...(plan.title_options||[])].filter(Boolean))}
+      <div class="panel"><h2>Your thumbnails</h2><div class="grid big">${concepts.map(thumbCard).join("")}</div></div>`);
+    log(`Generating ${concepts.length} thumbnails…`);
+    const rb=await refBlob(id);
+    await Promise.all(concepts.map(async(c,i)=>{
+      try{ const images=[]; if(userBlob) images.push({blob:userBlob,role:ROLE_SUBJECT}); if(rb) images.push({blob:rb,role:ROLE_REF});
+        fillCard(i,await genImage(c.image_prompt,images),c.name); log(`✓ ${c.name}`,"ok");
+      }catch(e){ failCard(i,e.message); log(e.message,"e"); }
+    }));
+    log("Done.","ok");
+  }catch(e){ log(e.message,"e"); } finally{ busy(false); }
+};
+
+function alert_(m){ $("log").innerHTML=""; log(m,"e"); }
+</script>
+</body>
+</html>
