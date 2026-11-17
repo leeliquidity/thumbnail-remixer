@@ -1,5 +1,7 @@
 # Viral Thumbnail Remixer
 
+**Use it in your browser:** https://leeliquidity.github.io/thumbnail-remixer/
+
 Takes any viral YouTube thumbnail → breaks down why it works → recreates that structure for your niche.
 
 ## Setup
