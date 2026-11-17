@@ -69,11 +69,11 @@ details summary{cursor:pointer;color:var(--mute)}
 
   <div class="panel hidden" id="keys">
     <h2>API keys</h2>
-    <p class="hint" style="margin-top:-6px">Saved only in this browser. They're sent straight to Anthropic, OpenAI and Google and never to anyone else.</p>
+    <p class="hint" style="margin-top:-6px">Search works with no keys. You only need keys to generate thumbnails. Saved only in this browser. They're sent straight to Anthropic, OpenAI and Google and never to anyone else.</p>
     <div class="row">
       <div><label>Anthropic API key</label><input type="password" id="kAnthropic" placeholder="sk-ant-..."></div>
       <div><label>OpenAI API key</label><input type="password" id="kOpenAI" placeholder="sk-..."></div>
-      <div><label>YouTube Data API key (needed for the Similar tab)</label><input type="password" id="kYouTube" placeholder="AIza..."></div>
+      <div><label>YouTube Data API key (optional, makes search more reliable)</label><input type="password" id="kYouTube" placeholder="AIza..."></div>
     </div>
     <div class="row">
       <div><label>Claude model</label><input type="text" id="mClaude" value="claude-sonnet-5-5"></div>
@@ -103,7 +103,7 @@ details summary{cursor:pointer;color:var(--mute)}
       </div>
       <label>Extra direction (optional)</label>
       <textarea id="sNotes" placeholder="e.g. green money vibe, show a P&L, keep it clean"></textarea>
-      <div style="margin-top:16px"><button class="btn" id="runSimilar">Find viral formula + generate</button></div>
+      <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap"><button class="ghost" id="runSearch">🔍 Just find viral thumbnails (free, no keys)</button><button class="btn" id="runSimilar">Find viral formula + generate</button></div>
     </div>
 
     <div id="tab-remix" class="hidden">
@@ -132,7 +132,6 @@ const $ = id => document.getElementById(id);
 const store = { get(k){try{return localStorage.getItem("tr_"+k)||""}catch{return ""}}, set(k,v){try{localStorage.setItem("tr_"+k,v)}catch{}} };
 const KEYS = ["kAnthropic","kOpenAI","kYouTube","mClaude","mImage","quality"];
 KEYS.forEach(k=>{const v=store.get(k); if(v) $(k).value=v;});
-if(!store.get("kAnthropic")||!store.get("kOpenAI")) $("keys").classList.remove("hidden");
 $("keysBtn").onclick=()=>$("keys").classList.toggle("hidden");
 $("saveKeys").onclick=()=>{KEYS.forEach(k=>store.set(k,$(k).value.trim())); $("keysMsg").textContent="Saved ✓"; setTimeout(()=>$("keys").classList.add("hidden"),600);};
 const cfg = k => $(k).value.trim();
@@ -172,7 +171,7 @@ async function cropTo169(b64){
 }
 
 // ---------- logging ----------
-function log(msg,cls=""){ $("logPanel").classList.remove("hidden"); const d=document.createElement("div"); if(cls)d.className=cls; d.textContent=msg; $("log").appendChild(d); $("log").scrollTop=1e9; }
+function log(msg,cls=""){ if(cls==="e"&&/API key/.test(msg)) $("keys").classList.remove("hidden"); $("logPanel").classList.remove("hidden"); const d=document.createElement("div"); if(cls)d.className=cls; d.textContent=msg; $("log").appendChild(d); $("log").scrollTop=1e9; }
 const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 // ---------- YouTube ----------
@@ -194,10 +193,54 @@ async function ytSearch(q, order, days){
   return v.items.map(x=>{ const views=+x.statistics.viewCount||0, sc=Math.max(subs[x.snippet.channelId]||0,1000);
     return {id:x.id,url:`https://youtu.be/${x.id}`,title:x.snippet.title,channel:x.snippet.channelTitle,views,subs:sc,outlier:+(views/sc).toFixed(1)}; });
 }
+// ---------- keyless search (free Piped / Invidious mirrors, auto-failover) ----------
+const MIRRORS={piped:["https://api.piped.private.coffee","https://pipedapi.kavin.rocks","https://pipedapi.adminforge.de"],
+               inv:["https://yt.chocolatemoo53.com","https://inv.nadeko.net","https://invidious.nerdvpn.de"]};
+let mirrorsLoaded=null;
+async function jget(url,ms=9000){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);
+  try{const r=await fetch(url,{signal:c.signal}); if(!r.ok) throw new Error("HTTP "+r.status); return await r.json();}finally{clearTimeout(t)}}
+function loadMirrors(){ return mirrorsLoaded ||= Promise.allSettled([
+  jget("https://api.invidious.io/instances.json?sort_by=type,users",5000).then(j=>j.filter(x=>x[1].type==="https"&&x[1].api&&x[1].cors).forEach(x=>{if(!MIRRORS.inv.includes(x[1].uri))MIRRORS.inv.push(x[1].uri)})),
+  jget("https://piped-instances.kavin.rocks/",5000).then(j=>j.forEach(x=>{if(x.api_url&&!MIRRORS.piped.includes(x.api_url))MIRRORS.piped.push(x.api_url)}))
+]); }
+async function tryMirrors(kind,path){
+  const list=MIRRORS[kind]; let err;
+  for(let i=0;i<list.length;i++){ const h=list[i];
+    try{ const d=await jget(h+path); if(i>0){list.splice(i,1);list.unshift(h);} return d; }catch(e){err=e;} }
+  throw err||new Error("no mirrors");
+}
+const fromPiped=it=>({id:((it.url||"").match(/v=([\w-]{11})/)||[])[1],title:it.title,channel:it.uploaderName,channelId:(it.uploaderUrl||"").split("/").pop(),
+  views:it.views||0,published:it.uploaded>0?it.uploaded:0,dur:it.duration||0,short:!!it.isShort});
+const fromInv=it=>({id:it.videoId,title:it.title,channel:it.author,channelId:it.authorId,views:it.viewCount||0,published:(it.published||0)*1000,dur:it.lengthSeconds||0,short:false});
+async function subsFor(cid){
+  try{const d=await tryMirrors("piped","/channel/"+cid); if(d.subscriberCount>0) return d.subscriberCount;}catch{}
+  try{const d=await tryMirrors("inv",`/api/v1/channels/${cid}?fields=subCount`); if(d.subCount>0) return d.subCount;}catch{}
+  return 0;
+}
+async function keylessSearch(q,days,minViews){
+  await Promise.race([loadMirrors(),new Promise(r=>setTimeout(r,2500))]);
+  const enc=encodeURIComponent(q), rows=[];
+  await Promise.allSettled([
+    (async()=>{ let d=await tryMirrors("piped",`/search?filter=videos&q=${enc}`); rows.push(...(d.items||[]).map(fromPiped));
+      for(let p=0;p<2&&d.nextpage;p++){ d=await tryMirrors("piped",`/nextpage/search?filter=videos&q=${enc}&nextpage=${encodeURIComponent(d.nextpage)}`); rows.push(...(d.items||[]).map(fromPiped)); } })(),
+    (async()=>{ for(const sort of ["views","relevance"]){ const d=await tryMirrors("inv",`/api/v1/search?type=video&sort=${sort}&sort_by=${sort==="views"?"view_count":"relevance"}&q=${enc}`);
+      rows.push(...(Array.isArray(d)?d:[]).filter(x=>x.type==="video").map(fromInv)); } })()
+  ]);
+  if(!rows.length) throw new Error("The free search mirrors are busy right now. Try again in a minute, or add a free YouTube API key under API keys.");
+  const cutoff=days?Date.now()-days*864e5:0, seen=new Set();
+  const cands=rows.filter(r=>r.id&&!r.short&&!(r.dur>0&&r.dur<62)&&r.views>=minViews&&!(cutoff&&r.published&&r.published<cutoff)&&!seen.has(r.id)&&seen.add(r.id))
+                  .sort((a,b)=>b.views-a.views).slice(0,20);
+  const subCache={};
+  await Promise.all(cands.map(async r=>{ if(!r.channelId) return; subCache[r.channelId] ||= subsFor(r.channelId); r.subs=await subCache[r.channelId]; }));
+  return cands.map(r=>({id:r.id,url:`https://youtu.be/${r.id}`,title:r.title,channel:r.channel,views:r.views,subs:r.subs||0,
+    outlier:r.subs?+(r.views/Math.max(r.subs,1000)).toFixed(1):null}));
+}
+
 async function findSimilar(title, top, days, minViews=20000){
-  const seen=new Set(), rows=[];
-  for(const order of ["relevance","viewCount"]) for(const r of await ytSearch(title,order,days)) if(!seen.has(r.id)&&r.views>=minViews){seen.add(r.id);rows.push(r);}
-  rows.forEach(r=>r.score=Math.log10(r.views+1)*(1+Math.log10(Math.max(r.outlier,.1)+1)));
+  const seen=new Set(); let rows=[];
+  if(cfg("kYouTube")){ for(const order of ["relevance","viewCount"]) for(const r of await ytSearch(title,order,days)) if(!seen.has(r.id)&&r.views>=minViews){seen.add(r.id);rows.push(r);} }
+  else rows=await keylessSearch(title,days,minViews);
+  rows.forEach(r=>r.score=Math.log10(r.views+1)*(1+(r.outlier==null?0.5:Math.log10(Math.max(r.outlier,.1)+1))));
   return rows.sort((a,b)=>b.score-a.score).slice(0,top);
 }
 
@@ -272,7 +315,7 @@ function fillCard(i,dataUrl,name){ const el=$("gen"+i); el.querySelector("img").
   el.querySelector(".st").innerHTML=`<a href="${dataUrl}" download="${(name||"thumbnail").replace(/\W+/g,"-")}.jpg">Download 1280×720</a>`; }
 function failCard(i,msg){ const el=$("gen"+i); el.querySelector(".st").innerHTML=`<span style="color:var(--err)">${esc(msg)}</span>`; }
 
-function busy(on){ ["runSimilar","runRemix"].forEach(id=>$(id).disabled=on); }
+function busy(on){ ["runSearch","runSimilar","runRemix"].forEach(id=>$(id).disabled=on); }
 
 // ---------- SIMILAR ----------
 $("runSimilar").onclick=async()=>{
@@ -283,10 +326,10 @@ $("runSimilar").onclick=async()=>{
     log(`Searching YouTube for videos like "${title}"…`);
     const refs=await findSimilar(title,refsN,days); if(!refs.length) throw new Error("No similar videos with 20k+ views found. Try a broader title or a longer age limit.");
     log(`Found ${refs.length} viral references`,"ok");
-    $("results").innerHTML=`<div class="panel"><h2>Viral references studied</h2><div class="grid">${refs.map((r,i)=>`<a class="card" href="${r.url}" target="_blank" style="text-decoration:none;color:inherit"><img src="${thumb(r.id,"mqdefault")}" alt=""><div class="meta"><b>${i+1}. ${esc(r.title)}</b><span class="pill">${r.views.toLocaleString()} views</span><span class="pill">${r.outlier}× subs</span><div class="why" id="why${i}" style="color:var(--mute);margin-top:6px"></div></div></a>`).join("")}</div></div>`;
+    $("results").innerHTML=`<div class="panel"><h2>Viral references studied</h2><div class="grid">${refs.map((r,i)=>`<a class="card" href="${r.url}" target="_blank" style="text-decoration:none;color:inherit"><img src="${thumb(r.id,"mqdefault")}" alt=""><div class="meta"><b>${i+1}. ${esc(r.title)}</b><span class="pill">${r.views.toLocaleString()} views</span>${r.outlier!=null?`<span class="pill">${r.outlier}× subs</span>`:""}<div class="why" id="why${i}" style="color:var(--mute);margin-top:6px"></div></div></a>`).join("")}</div></div>`;
     const userBlob = uploads.s ? await toJpegBlob(uploads.s) : null;
     log("Asking Claude to find the shared viral formula…");
-    const refTxt=refs.map((r,i)=>`${i+1}. "${r.title}" (${r.channel}): ${r.views.toLocaleString()} views, ${r.outlier}x channel subs`).join("\n");
+    const refTxt=refs.map((r,i)=>`${i+1}. "${r.title}" (${r.channel}): ${r.views.toLocaleString()} views${r.outlier!=null?`, ${r.outlier}x channel subs`:""}`).join("\n");
     const blocks=refs.map(r=>imgUrlBlock(thumb(r.id)));
     if(userBlob) blocks.push(imgB64Block(await blobToB64(userBlob)));
     blocks.push({type:"text",text:SYNTH(refs.length,refTxt,title,notes,n,!!userBlob)});
@@ -343,6 +386,18 @@ $("runRemix").onclick=async()=>{
       }catch(e){ failCard(i,e.message); log(e.message,"e"); }
     }));
     log("Done.","ok");
+  }catch(e){ log(e.message,"e"); } finally{ busy(false); }
+};
+
+$("runSearch").onclick=async()=>{
+  const title=$("sTitle").value.trim(); if(!title) return alert_("Enter your video title");
+  const days=+$("sDays").value||null; busy(true); $("log").innerHTML=""; $("results").innerHTML="";
+  try{
+    log(`Searching YouTube for viral videos like "${title}"…`);
+    const refs=await findSimilar(title,12,days); if(!refs.length) throw new Error("No similar videos with 20k+ views found. Try a broader title or a longer age limit.");
+    log(`Found ${refs.length} viral videos, ranked by views and how far they beat their channel size`,"ok");
+    $("results").innerHTML=`<div class="panel"><h2>Most viral similar videos</h2><div class="grid">${refs.map((r,i)=>`<div class="card"><a href="${r.url}" target="_blank"><img src="${thumb(r.id,"mqdefault")}" alt=""></a><div class="meta"><b>${i+1}. ${esc(r.title)}</b><div style="color:var(--mute);margin-bottom:6px">${esc(r.channel)}</div><span class="pill">${r.views.toLocaleString()} views</span>${r.outlier!=null?`<span class="pill">${r.outlier}× subs</span>`:""}<div style="margin-top:8px;display:flex;gap:12px"><a href="${thumb(r.id,"maxresdefault")}" target="_blank">HD thumbnail</a><a href="#" data-url="${r.url}" class="useRemix">Remix this</a></div></div></div>`).join("")}</div><p class="hint">Add your image and click "Find viral formula + generate" to build thumbnails around it. Generating needs API keys.</p></div>`;
+    document.querySelectorAll(".useRemix").forEach(a=>a.onclick=e=>{e.preventDefault(); $("rUrl").value=a.dataset.url; document.querySelector('[data-tab="remix"]').click(); window.scrollTo({top:0,behavior:"smooth"});});
   }catch(e){ log(e.message,"e"); } finally{ busy(false); }
 };
 
