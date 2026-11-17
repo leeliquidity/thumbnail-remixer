@@ -27,12 +27,6 @@ python thumbnail_bot.py find "side hustle" --top 10
 # Find outliers in one niche and remix them all into yours
 python thumbnail_bot.py find "side hustle" --top 5 --remix-niche "options trading"
 
-# Telegram bot
-python telegram_bot.py
-#   send a photo with your title as the caption → similar mode
-#   /similar <title>  → similar mode with no photo
-#   send:  https://youtu.be/xxx | real estate | My first rental at 21
-#   photo captioned /face  → puts you in every thumbnail
 ```
 
 ## `similar` output (`out/similar_<title>_<time>/`)
